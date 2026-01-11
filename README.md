@@ -23,7 +23,7 @@ The backend serves as the bridge between distributed services and the analysis p
 graph LR
     Client[Client Services] -->|HTTP POST| API[Ingestion API]
     API -->|Validate| Schema[Pydantic Schema]
-    Schema -->|Valid| DB[(PostgreSQL\nRaw Signals)]
+    Schema -->|Valid| DB[(PostgreSQL<br/>Raw Signals)]
     Schema -->|Invalid| 422[422 Error]
     DB -.->|Poll/CDC| Pipeline[Analysis Pipeline]
     
