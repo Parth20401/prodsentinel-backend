@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "ProdSentinel"
     APP_ENV: str = "local"
     DATABASE_URL: str
+    LOG_LEVEL: str = "INFO"
 
     class Config:
         env_file = ".env"
