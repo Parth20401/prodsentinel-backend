@@ -8,13 +8,13 @@ sys.path.append(str(BASE_DIR))
 
 from logging.config import fileConfig
 
+from app.models.base import Base
 from app.models.raw_signal import RawSignal
+from app.models.incident import Incident, AnalysisResult  # Import new models
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-from app.models.base import Base
-from app.models.raw_signal import RawSignal
 
 from sqlalchemy.ext.asyncio import async_engine_from_config, AsyncConnection
 

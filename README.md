@@ -1,150 +1,132 @@
 # ProdSentinel Backend
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=for-the-badge&logo=fastapi)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791?style=for-the-badge&logo=postgresql)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+The **ProdSentinel Backend** is the high-performance ingestion and query engine for the ProdSentinel platform. It handles the receipt, validation, and persistent storage of all telemetry signals from distributed services and triggers the asynchronous analysis pipeline.
 
-**ProdSentinel Backend** is the high-performance ingestion and query engine for the ProdSentinel incident analysis platform. It is designed to handle high-velocity telemetry streams (logs, traces, metrics) with strict reliability guarantees, utilizing an async-first architecture to ensure non-blocking signal acceptance.
+## Overview
 
-## 🚀 Key Features
+The backend acts as the gateway to the ProdSentinel ecosystem. It provides async HTTP endpoints to accept logs, traces, and metrics, ensuring that telemetry ingestion never blocks the producing services. It also serves as the source of truth for the Query API used by the frontend.
 
-*   **⚡ Async-First Architecture**: Built on `FastAPI` and `SQLAlchemy (AsyncPG)` for maximum throughput.
-*   **🛡️ Immutable Event Store**: All incoming signals are stored in an append-only `raw_signals` table to ensure data integrity.
-*   **🔄 Idempotency Guarantee**: Unique `signal_id` enforcement prevents duplicate processing of telemetry.
-*   **🔍 Structured Correlation**: Native support for `trace_id` propagation for distributed tracing analysis.
-*   **✅ Strict Schema Validation**: `Pydantic` models ensure only valid telemetry is persisted.
+## Features
 
-## 🏗️ Architecture
+- **High-Throughput Ingestion**: Async-first architecture using FastAPI and SQLAlchemy (AsyncPG).
+- **Signal Deduplication**: Client-side `signal_id` enforcement for idempotency.
+- **Distributed Correlation**: Native support for `trace_id` shared across all signal types.
+- **Analysis Triggering**: Automatically detects error signals and queues analysis tasks via Celery/Redis.
+- **Distributed Lock**: Core implementation of Redis-based deduplication to prevent redundant analysis runs.
+- **Immutable Store**: Append-only storage for raw telemetry to preserve audit trails.
 
-The backend serves as the bridge between distributed services and the analysis pipeline.
+## Tech Stack
+
+- **Core**: Python 3.12+
+- **Web Framework**: FastAPI
+- **Database**: PostgreSQL with SQLAlchemy (Async)
+- **Migrations**: Alembic
+- **Task Ingestion**: Celery (client) & Redis
+- **Validation**: Pydantic v2
+- **Server**: Uvicorn
+
+## Architecture (High Level)
 
 ```mermaid
-graph LR
-    Client[Client Services] -->|HTTP POST| API[Ingestion API]
-    API -->|Validate| Schema[Pydantic Schema]
-    Schema -->|Valid| DB[(PostgreSQL<br/>Raw Signals)]
-    Schema -->|Invalid| 422[422 Error]
-    DB -.->|Poll/CDC| Pipeline[Analysis Pipeline]
-    
-    style API fill:#009688,stroke:#333,stroke-width:2px,color:white
-    style DB fill:#336791,stroke:#333,stroke-width:2px,color:white
-    style Client fill:#f9f9f9,stroke:#333
+graph TD
+    A[Fake Services] -->|HTTP POST| B[Backend API]
+    B -->|Validate| C{Pydantic}
+    C -->|Valid| D[(PostgreSQL)]
+    B -->|Trigger RCA| E[Redis / Celery]
+    E -.-> F[Pipeline Service]
+    D <-->|Query| G[Frontend / API]
 ```
 
-### Directory Structure
+## Setup / Installation
 
-```text
-app/
-├── core/           # ⚙️ Config, DB setup, Logging
-├── models/         # 🗄️ SQLAlchemy ORM Models
-├── routers/        # 🛣️ API Route Handlers
-├── schemas/        # 📝 Pydantic Validation Schemas
-├── services/       # 🧠 Business Logic
-└── utils/          # 🛠️ Helper Utilities
+1. **Environment Setup**:
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv pip install -r requirements.txt
+   ```
+
+2. **Database Initialization**:
+   Ensure PostgreSQL is running, then apply migrations:
+   ```bash
+   uv run alembic upgrade head
+   ```
+
+3. **Redis Initialization**:
+   Required for analysis triggering:
+   ```bash
+   docker run -d -p 6379:6379 redis:latest
+   ```
+
+## Configuration
+
+Create a `.env` file based on `.env.example`:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL (asyncpg) connection string | Required |
+| `REDIS_URL` | Redis for Celery task queuing | `redis://localhost:6379/0` |
+| `LOG_LEVEL` | Logging verbosity (DEBUG, INFO) | `INFO` |
+
+## Usage
+
+### Run the Server
+```bash
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-## 🛠️ Getting Started
+### Access Documentation
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
 
-### Prerequisites
+## API / Interfaces (Telemetry Specs)
 
-*   **Python 3.11+**
-*   **PostgreSQL 14+**
-*   **Virtual Environment Tool** (venv, etc.)
+The backend handles three primary signal types. Each key is crucial for downstream analysis.
 
-### Installation
+### 1. Logs (`/ingest/logs`)
 
-1.  **Clone the repository** (if you haven't already):
-    ```bash
-    git clone https://github.com/yourusername/prodsentinel-backend.git
-    cd prodsentinel-backend
-    ```
+| Key | Type | Description |
+|-----|------|-------------|
+| `signal_id` | UUID | Client-generated unique ID for idempotency. |
+| `trace_id` | String | Correlation ID for grouping related requests. |
+| `service_name`| String | Source service emitting the log. |
+| `timestamp` | ISO8601| Event occurrence time. |
+| `level` | String | Severity: `INFO`, `ERROR`, `CRITICAL`. |
+| `message` | String | Log message content. |
+| `attributes` | Object | Metadata used by AI to find root causes. |
 
-2.  **Create and activate virtual environment**:
-    ```bash
-    # Windows
-    python -m venv .venv
-    .venv\Scripts\activate
+### 2. Traces (`/ingest/traces`)
 
-    # Linux/Mac
-    python -m venv .venv
-    source .venv/bin/activate
-    ```
+| Key | Type | Description |
+|-----|------|-------------|
+| `signal_id` | UUID| Signal idempotency key. |
+| `trace_id` | String| Shared ID for the whole request path. |
+| `span_id` | String| Unique ID for this specific operation. |
+| `parent_span_id`| String| ID of the calling operation. |
+| `service_name` | String| Service name. |
+| `name` | String| Operation name (e.g., `AUTHORIZE_PAYMENT`). |
+| `start_time` | ISO8601| Operation start. |
+| `end_time` | ISO8601| Operation end. |
 
-3.  **Install dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 3. Metrics (`/ingest/metrics`)
 
-4.  **Configure Environment**:
-    Create a `.env` file in the root directory:
-    ```env
-    DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/prodsentinel
-    APP_ENV=development
-    LOG_LEVEL=INFO
-    ```
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | String| Metric name (e.g., `http_request_duration`). |
+| `value` | Float | Measured value. |
+| `service_name` | String| Source service. |
+| `timestamp` | ISO8601| Measurement time. |
 
-5.  **Run Database Migrations**:
-    ```bash
-    alembic upgrade head
-    ```
+## Testing
 
-### Running the Server
-
-Start the development server with auto-reload enabled:
+Run integration tests covering ingestion and query flows:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+uv run pytest
 ```
 
-The API will be available at [http://localhost:8000](http://localhost:8000).
-
-*   **Interactive Docs (Swagger UI)**: [/docs](http://localhost:8000/docs)
-*   **ReDoc**: [/redoc](http://localhost:8000/redoc)
-
-## 📡 API Endpoints
-
-### Ingestion API
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/ingest/logs` | Ingest log signals from services. |
-| `POST` | `/ingest/traces` | Ingest distributed trace spans. |
-| `POST` | `/ingest/metrics` | Ingest application metrics. |
-
-#### Example: Ingest a Log
-
+Failure simulation tests (triggering RCA):
 ```bash
-curl -X POST "http://localhost:8000/ingest/logs" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "signal_id": "550e8400-e29b-41d4-a716-446655440000",
-           "trace_id": "trace-12345",
-           "service_name": "payment-service",
-           "timestamp": "2026-01-12T10:00:00Z",
-           "level": "ERROR",
-           "message": "Payment gateway timeout",
-           "attributes": {"amount": 500, "currency": "USD"}
-         }'
+# Trigger a log that initiates a pipeline task
+curl -X POST http://localhost:8000/ingest/logs -d '{... "level": "ERROR" ...}'
 ```
-
-## 👩‍💻 Development
-
-### Database Migrations (Alembic)
-
-*   **Create Migration**: `alembic revision --autogenerate -m "migration_name"`
-*   **Apply Migration**: `alembic upgrade head`
-*   **Rollback**: `alembic downgrade -1`
-
-### Best Practices
-
-*   **Idempotency**: Always generate a UUID for `signal_id` on the client side.
-*   **Async**: All I/O bound operations must be `await`able.
-
-## 🤝 Contributing
-
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request

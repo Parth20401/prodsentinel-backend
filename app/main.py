@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import ingest
+# from app.routers import ingest  # Moved to bottom with query router
 from app.core.logging import setup_logging, get_logger
 from app.core.config import settings
 
@@ -55,5 +55,8 @@ async def shutdown_event():
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
+from app.routers import ingest, query
+
 app.include_router(ingest.router)
+app.include_router(query.router)
 
